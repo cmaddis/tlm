@@ -9,7 +9,7 @@ A minimal implementation of a transformer-based language model, following [nanoG
 - Trains on a subset of the [TinyStories dataset](https://arxiv.org/abs/2305.07759) for lightweight experimentation
 
 ## Understanding the Code
-The cleanest part of the code base is `model.py`, which contains the implementation of the Transformer model. We recommend focus your efforts there.
+The cleanest part of the code base is `model.py`, which contains the implementation of the Transformer model. We recommend you focus your efforts there.
 
 We use Penzai's NamedArray to make Transformer's computations more clear. Although they require a bit of getting used to, named axes allow you to focus on the key semantics of the computation, while ignoring the structure of the data. The best place to start learning about Penzai's named axes [is here](https://penzai.readthedocs.io/en/stable/notebooks/named_axes.html). 
 
@@ -35,8 +35,8 @@ This makes it a bit more clear which axes are participating in which computation
 
 ## Getting Started
 
-1. Install dependencies: `jax`, `penzai`, `optax`, `tqdm`, `requests`, `numpy`.
-2. Run the training script: `python train.py`.
+1. Install dependencies: `jax`, `penzai`, `optax`, `tqdm`, `requests`, `numpy`
+2. Run the training script: `python train.py`
 
 The model will train on a subset of TinyStories and generate sample text.
 
