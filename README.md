@@ -1,4 +1,4 @@
-# A Tiny Large Model 🥺
+# A Tiny Large Model
 
 A minimal implementation of a transformer-based language model, following [nanoGPT](https://github.com/karpathy/nanoGPT) very closely. This implementation emphasizes pedagogy, using [JAX](https://github.com/jax-ml/jax) and [Penzai's](https://github.com/google-deepmind/penzai) named array system to make the attention mechanism more intuitive and easier to understand. This project was developed for [CSC2541: Large Models](https://www.cs.toronto.edu/~cmaddis/courses/csc2541_w25/) at the University of Toronto.
 
@@ -28,10 +28,7 @@ For example, in this pseudo-code for a (non-causal) attention mechanism, instead
 
     # The value returned for each query is the average value
     # indexed by the keys, under the attention distribution
-    out = nmap(jnp.dot)(
-        attn_dist.untag("kseq"),
-        v.untag("kseq")
-    )
+    out = nmap(jnp.dot)(attn_dist.untag("kseq"), v.untag("kseq"))
 
 
 This makes it a bit more clear which axes are participating in which computation.
