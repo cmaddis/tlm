@@ -15,7 +15,7 @@ We use Penzai's NamedArray to make Transformer's computations more clear. Althou
 
 For example, in this pseudo-code for a (non-causal) attention mechanism, instead of keeping track of tensor axes, we explicitly name our dimensions. This is what it looks like:
 
-    # Every key interacts with every query via the dot of their feature_axis
+    # Every key interacts with every query via the dot of their embeddings
     attn_logits = nmap(jnp.dot)(q.untag("embed"), k.untag("embed"))
 
     # Scale the attention logits to ensure constant variance
