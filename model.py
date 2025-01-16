@@ -12,6 +12,32 @@ from convenience import (sample_along, is_fully_named,
                          axis_names_are, axis_names_contain,
                          get_innout_axes)
 
+def generate_from_transformer(key, params, inp, context_size, max_new_tokens):
+    """Autoregressively generates new tokens by sampling from the model's predictions, using a sliding context window if needed.
+    
+    WARNING: This implementation emphasizes pedagogy, and is not very efficient."""
+    assert axis_names_are(inp, {"batch", "seq"})
+
+    generated = inp
+    for _ in range(max_new_tokens):
+        # get context (at most context_size)
+        context_window = (generated if generated.named_shape["seq"] <= context_size else 
+                        generated[{"seq" : pz.slice[-context_size:]}])
+        
+        # Get predictions (my imeplementation is very wasteful)
+        log_preds = get_log_predictions(params, context_window)
+
+        # Take the last time step prediction
+        log_pred = log_preds[{"seq" : pz.slice[-1:]}]
+
+        # Sample categoricals along the vocab dimension
+        key, subkey = jax.random.split(key)
+        next_tokens = jax.jit(sample_along, static_argnums=2)(subkey, log_pred, "vocab")
+
+        # concatenate along the seq dimension to the running sequence
+        generated = pz.nx.concatenate((generated, next_tokens), "seq")
+    return generated
+
 @jax.jit
 def get_log_predictions(params, inp):
     """Computes log-probabilities over the vocabulary for each position in the input sequence using the full Transformer model."""
@@ -41,26 +67,6 @@ def get_log_predictions(params, inp):
     log_preds = nmap(jax.nn.log_softmax)(logits.untag("vocab"))
     log_preds = log_preds.tag("vocab")
     return log_preds
-
-def generate_from_transformer(key, params, inp, context_size, max_new_tokens):
-    """Autoregressively generates new tokens by sampling from the model's predictions, using a sliding context window if needed."""
-    assert axis_names_are(inp, {"batch", "seq"})
-
-    generated = inp
-    for _ in range(max_new_tokens):
-        # get context
-        context = (generated if generated.named_shape["seq"] <= context_size else 
-                        generated[{"seq" : pz.slice[-context_size:]}])
-        # focus on last time step (this is pretty wasteful!)
-        log_preds = get_log_predictions(params, context)[{"seq" : pz.slice[-1:]}]
-
-        # sample categoricals along the vocab dimension
-        key, subkey = jax.random.split(key)
-        next_tokens = jax.jit(sample_along, static_argnums=2)(subkey, log_preds, "vocab")
-
-        # concatenate along the seq dimension to the running sequence
-        generated = pz.nx.concatenate((generated, next_tokens), "seq")
-    return generated
 
 def transformer_block(params, x):
     """Processes input through a complete Transformer block: layer norm → self-attention → residual → layer norm → feed-forward → residual."""
