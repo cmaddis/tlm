@@ -138,7 +138,7 @@ def attention(q, k, v, query_axis, key_axis, feature_axis, causal=True):
     # Every key interacts with every query via the dot product of their feature vectors
     attn_logits = nmap(jnp.dot)(q.untag(feature_axis), k.untag(feature_axis))
 
-    # Scale the attention logits to normalize the variance as feature_dim changes
+    # Scale the attention logits to avoid saturating the softmax
     feature_dim = q.named_shape[feature_axis]
     attn_logits = attn_logits / np.sqrt(feature_dim)
 

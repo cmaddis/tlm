@@ -13,14 +13,10 @@ The cleanest part of the code base is `model.py`, which contains the implementat
 
 We use Penzai's NamedArray to make Transformer's computations more clear. Although they require a bit of getting used to, named axes allow you to focus on the key semantics of the computation, while ignoring the structure of the data. The best place to start learning about Penzai's named axes [is here](https://penzai.readthedocs.io/en/stable/notebooks/named_axes.html). 
 
-For example, in this pseudo-code for a (non-causal) attention mechanism, instead of keeping track of tensor axes, we explicitly name our dimensions. This is what it looks like:
+For example, in this pseudo-code for a (highly simplistic) attention mechanism, instead of keeping track of tensor axes, we explicitly name our dimensions. This is what it looks like:
 
     # Every key interacts with every query via the dot of their embeddings
     attn_logits = nmap(jnp.dot)(q.untag("embed"), k.untag("embed"))
-
-    # Scale the attention logits to ensure constant variance
-    feature_dim = q.named_shape["embed"]
-    attn_logits = attn_logits / np.sqrt(feature_dim)
 
     # Compute a distribution over keys for each query
     attn_dist = nmap(jax.nn.softmax)(attn_logits.untag("kseq))
