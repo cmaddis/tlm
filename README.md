@@ -35,10 +35,8 @@ This makes it a bit more clear which axes are participating in which computation
 
 ## Getting Started
 
-1. Install dependencies `jax`, `penzai`, `optax`, `tqdm`, `requests`, `numpy`.
-2. Run the training script:
-
-    python train.py
+1. Install dependencies: `jax`, `penzai`, `optax`, `tqdm`, `requests`, `numpy`.
+2. Run the training script: `python train.py`.
 
 The model will train on a subset of TinyStories and generate sample text.
 
