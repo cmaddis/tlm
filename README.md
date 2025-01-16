@@ -1,10 +1,10 @@
 # A Tiny Large Model
 
-A minimal implementation of a transformer-based language model, following [nanoGPT](https://github.com/karpathy/nanoGPT) very closely. This implementation emphasizes pedagogy, using [JAX](https://github.com/jax-ml/jax) and [Penzai's](https://github.com/google-deepmind/penzai) named array system to make the attention mechanism more intuitive and easier to understand. This project was developed for [CSC2541: Large Models](https://www.cs.toronto.edu/~cmaddis/courses/csc2541_w25/) at the University of Toronto.
+A minimal implementation of a Transformer-based language model, following [nanoGPT](https://github.com/karpathy/nanoGPT) very closely. This implementation emphasizes pedagogy, using [JAX](https://github.com/jax-ml/jax) and [Penzai's](https://github.com/google-deepmind/penzai) named array system to make the attention mechanism more intuitive and easier to understand. This project was developed for [CSC2541: Large Models](https://www.cs.toronto.edu/~cmaddis/courses/csc2541_w25/) at the University of Toronto.
 
 ## Key Features
 
-- Self-contained implementation of a transformer model in JAX
+- Self-contained implementation of a Transformer model in JAX
 - Uses named arrays to make tensor operations more semantically meaningful
 - Trains on a subset of the [TinyStories dataset](https://arxiv.org/abs/2305.07759) for lightweight experimentation
 
