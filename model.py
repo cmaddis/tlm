@@ -75,7 +75,7 @@ def transformer_block(params, emb):
     ln1_out = renorm_along(params['ln1'], emb, "embed")
 
     # MULTIHEADED CAUSAL SELF ATTENTION
-    attn_out = multihead_selfattention(params['attn'], ln1_out, causal=True)
+    attn_out = multiheaded_selfattention(params['attn'], ln1_out, causal=True)
 
     # RESIDUAL CONNECTION
     emb = emb + attn_out
@@ -90,88 +90,77 @@ def transformer_block(params, emb):
 
     return emb
 
-def multihead_selfattention(params, emb, causal=True):
-    """Applies multi-head self-attention where each head processes a different projection of the input, allowing the model to attend to different aspects of the sequence."""
+def multiheaded_selfattention(params, emb, causal=True):
     assert axis_names_are(emb, {"batch", "seq", "embed"})
 
-    # We produce keys, queries, and values by embedding each token with
-    # a different linear transformation
-    q = nmap(jnp.dot)(params["wq"].untag("embed"), emb.untag("embed"))
-    k = nmap(jnp.dot)(params["wk"].untag("embed"), emb.untag("embed"))
-    v = nmap(jnp.dot)(params["wv"].untag("embed"), emb.untag("embed"))
-
-    assert axis_names_are(q, {"batch", "seq", "head", "embed/head"})
-    assert axis_names_are(k, {"batch", "seq", "head", "embed/head"})
-    assert axis_names_are(v, {"batch", "seq", "head", "embed/head"})
+    # Apply three linear maps to the embeddings independently across "seq"
+    # These are now our keys and queries and values for self-attention!
+    queries = nmap(jnp.dot)(params["Wq"].untag("embed"), emb.untag("embed"))
+    keys = nmap(jnp.dot)(params["Wk"].untag("embed"), emb.untag("embed"))
+    values = nmap(jnp.dot)(params["Wv"].untag("embed"), emb.untag("embed"))
 
     # As this is SELF-attention, the queries and keys both have the same dimension "seq". 
     # But, we want (key, query) pairs to interact, even if the key and query index
     # is different. To accomplish this with the named array system, we need to rename 
     # the "seq" axis for both.
-    q = q.untag("seq").tag("query")
-    k = k.untag("seq").tag("key")
-    v = v.untag("seq").tag("key")
-    
-    # Now we're ready to attend! We will have the queries along axis "query" attend
-    # to the keys along "key", using "embed/head" as the feature_axis.
-    # This will keep the heads independent.
-    attn_out = attention(q, k, v,
-                        query_axis="query",
-                        key_axis="key",
-                        feature_axis="embed/head",
-                        causal=causal)
+    queries = queries.untag("seq").tag("query")
+    keys = keys.untag("seq").tag("key")
+    values = values.untag("seq").tag("key")
+
+    assert axis_names_are(queries, {"batch", "query", "head", "embed/head"})
+    assert axis_names_are(keys, {"batch", "key", "head", "embed/head"})
+    assert axis_names_are(values, {"batch", "key", "head", "embed/head"})
+
+    # Compute scores by taking the inner product of every key with every query
+    # This checks "alignment".
+    scores = nmap(jnp.dot)(queries.untag("embed/head"), keys.untag("embed/head"))
+
+    # Scale the attention logits to avoid saturating the softmax
+    feature_dim = queries.named_shape["embed/head"]
+    scores = scores / np.sqrt(feature_dim)
+
+    if causal:
+        # For causal attention, we want to mask out (set to -inf) any (key, query) pair
+        # such that key's index is greater than query's index, i.e., key is in the future.
+        # This ensures the softmax will give zero probability to attending to the future.
+
+        # Get the sequence indices for the queries and keys to enable causal masking
+        query_dim = queries.named_shape["query"]
+        key_dim = keys.named_shape["key"]
+        k_idxs = pz.nx.arange("key", key_dim)
+        q_idxs = pz.nx.arange("query", query_dim)
+
+        # Set the scores to -inf where q < k
+        scores = nmap(jnp.where)(
+        q_idxs < k_idxs,  # Broadcasts across other dimensions
+        float('-inf'),
+        scores,
+        )
+
+    # Compute a probability distribution over keys for each query
+    # This is the "soft" index, aka attention!
+    attn_dist = nmap(jax.nn.softmax)(scores.untag("key"))
+    attn_dist = attn_dist.tag("key")
+
+    # Taking the inner product along the key axis with the attention distribution
+    # returns the average value, with each key contributing in proportion to 
+    # its attention weight
+    # the output will have named axes {"query", "embed"} and is a floating-point array
+    emb = nmap(jnp.dot)(attn_dist.untag("key"), values.untag("key"))
 
     # We're going to rearrange the dimensions now to bring us back to convention.
     # First, we rename "query", which was a holdover from our attention convention
-    attn_out = attn_out.untag("query").tag("seq")
-    # Now, we concat "head" and "embed/head" dimensions
-    emb = attn_out.untag("head", "embed/head").flatten().tag("embed")
-    assert axis_names_are(emb, {"batch", "seq", "embed"})
+    emb = emb.untag("query").tag("seq")
+
+    # emb named axes should now include {"seq", "head", "embed/head"}
+    # We can concatenate "head" and "embed/head" axes by reshaping:
+    emb = emb.untag("head", "embed/head").flatten().tag("embed")
+
+    # emb named axes should now include {"seq", "embed"}
 
     # Final affine layer
     emb = affine_along(params["aff"], emb, "embed")
     return emb
-
-def attention(q, k, v, query_axis, key_axis, feature_axis, causal=True):
-    """Computes scaled dot-product attention between queries and keys, with optional causal masking to prevent attending 
-    to future tokens."""
-    assert axis_names_contain(q, {query_axis, feature_axis})
-    assert axis_names_contain(k, {key_axis, feature_axis})
-    assert axis_names_contain(v, {key_axis})
-
-    # Every key interacts with every query via the dot product of their feature vectors
-    scores = nmap(jnp.dot)(q.untag(feature_axis), k.untag(feature_axis))
-
-    # Scale the attention logits to avoid saturating the softmax
-    feature_dim = q.named_shape[feature_axis]
-    scores = scores / np.sqrt(feature_dim)
-
-    if causal:
-        # Get the sequence indices for the queries and keys to enable causal masking
-        query_dim = q.named_shape[query_axis]
-        key_dim = k.named_shape[key_axis]
-        k_idxs = pz.nx.arange(key_axis, key_dim)
-        q_idxs = pz.nx.arange(query_axis, query_dim)
-        # For causal attention, we want to mask out (set to -inf) any (key, query) pair
-        # such that key's index is greater than query's index, i.e., key is in the future.
-        # This ensures the softmax will give zero probability to attending to the future.
-        scores = nmap(jnp.where)(
-            q_idxs < k_idxs,  # Broadcasts across other dimensions
-            float('-inf'),
-            scores,
-        )
-
-    # Compute a probability distribution over keys for each query
-    attn_dist = nmap(jax.nn.softmax)(scores.untag(key_axis))
-    attn_dist = attn_dist.tag(key_axis)
-
-    # The output for each query is the weighted average of values,
-    # where weights come from the attention distribution
-    out = nmap(jnp.dot)(
-        attn_dist.untag(key_axis),
-        v.untag(key_axis)
-    )
-    return out
 
 def renorm_along(params, x, axis):
     """Renormalizes along the specified axis with learnable scale and bias parameters."""
@@ -279,9 +268,9 @@ def param_init(key, config):
 
         shape = (embed_dim, head_size, n_heads)
         block['attn'] = {
-            'wq': wrap(sample_uniform(block_keys[0], shape[0], shape)).tag("embed", "embed/head", "head"),
-            'wk': wrap(sample_uniform(block_keys[1], shape[0], shape)).tag("embed", "embed/head", "head"),
-            'wv': wrap(sample_uniform(block_keys[2], shape[0], shape)).tag("embed", "embed/head", "head"),
+            'Wq': wrap(sample_uniform(block_keys[0], shape[0], shape)).tag("embed", "embed/head", "head"),
+            'Wk': wrap(sample_uniform(block_keys[1], shape[0], shape)).tag("embed", "embed/head", "head"),
+            'Wv': wrap(sample_uniform(block_keys[2], shape[0], shape)).tag("embed", "embed/head", "head"),
         }
         shape = (embed_dim, embed_dim)
         block['attn']['aff'] = {
