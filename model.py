@@ -108,22 +108,22 @@ def multihead_selfattention(params, emb, causal=True):
     # But, we want (key, query) pairs to interact, even if the key and query index
     # is different. To accomplish this with the named array system, we need to rename 
     # the "seq" axis for both.
-    q = q.untag("seq").tag("qseq")
-    k = k.untag("seq").tag("kseq")
-    v = v.untag("seq").tag("kseq")
+    q = q.untag("seq").tag("query")
+    k = k.untag("seq").tag("key")
+    v = v.untag("seq").tag("key")
     
-    # Now we're ready to attend! We will have the queries along axis "qseq" attend
-    # to the keys along "kseq", using "embed/head" as the feature_axis.
+    # Now we're ready to attend! We will have the queries along axis "query" attend
+    # to the keys along "key", using "embed/head" as the feature_axis.
     # This will keep the heads independent.
     attn_out = attention(q, k, v,
-                        query_axis="qseq",
-                        key_axis="kseq",
+                        query_axis="query",
+                        key_axis="key",
                         feature_axis="embed/head",
                         causal=causal)
 
     # We're going to rearrange the dimensions now to bring us back to convention.
-    # First, we rename "qseq", which was a holdover from our attention convention
-    attn_out = attn_out.untag("qseq").tag("seq")
+    # First, we rename "query", which was a holdover from our attention convention
+    attn_out = attn_out.untag("query").tag("seq")
     # Now, we concat "head" and "embed/head" dimensions
     emb = attn_out.untag("head", "embed/head").flatten().tag("embed")
     assert axis_names_are(emb, {"batch", "seq", "embed"})
