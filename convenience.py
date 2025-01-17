@@ -32,12 +32,3 @@ def axis_names_are(x, names):
 
 def axis_names_contain(x, names):
     return names <= set(x.named_shape.keys())
-
-def get_innout_axes(namedarray):
-    ax1, ax2 = tuple(namedarray.named_shape.keys())
-    if ax1.endswith("_in") and ax2.endswith("_out"):
-        return ax1, ax2
-    elif ax2.endswith("_in") and ax1.endswith("_out"):
-        return ax2, ax1
-    else:
-        raise ValueError(f"Named axes must end with '_in' and '_out', but got '{ax1}' and '{ax2}'. ")
