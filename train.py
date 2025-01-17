@@ -10,12 +10,12 @@ import data
 # Initialize parameters and optimizer
 config = {
     "batch_size" : 16,
-    "block_size" : 32,
+    "context_len" : 32,
     "embed_dim" : 64,
     "n_heads" : 4,
     "n_layers" : 4,
     "learning_rate" : 1e-3,
-    "vocab_size" : len(data.charset),
+    "alphabet_size" : len(data.ALPHABET),
     "max_iters" : 5000,
     "eval_interval" : 500,
     "eval_iters" : 200,
@@ -33,8 +33,8 @@ opt_state = optimizer.init(params)
 @jax.jit
 def empirical_risk(params, input_tokens, target_tokens):
     log_preds = get_log_predictions(params, input_tokens)
-    assert axis_names_are(log_preds, {"batch", "seq", "vocab"})
-    return cross_entropy_along(target_tokens, log_preds, "vocab")
+    assert axis_names_are(log_preds, {"batch", "seq", "alphabet"})
+    return cross_entropy_along(target_tokens, log_preds, "alphabet")
 
 @jax.jit
 def train_step(params, input_tokens, target_tokens, opt_state):
@@ -51,10 +51,10 @@ train_losses = []
 val_losses = []
 
 # Training loop
-pbar = tqdm.tqdm(range(config["max_iters"]), desc="Training...")
+pbar = tqdm.tqdm(range(config["max_iters"]), desc="Training...                ")
 for iter in pbar:
     # Get a batch of data
-    input_tokens, target_tokens = data.get_batch(config["batch_size"], config["block_size"], "train")
+    input_tokens, target_tokens = data.get_batch(config["batch_size"], config["context_len"], "train")
 
     # Wrap the tokens into named arrays
     input_tokens = wrap(input_tokens).tag("batch", "seq")
@@ -71,7 +71,7 @@ for iter in pbar:
         losses = []
         for _ in range(config["eval_iters"]):
             # Get a batch of data
-            input_tokens, target_tokens = data.get_batch(config["batch_size"], config["block_size"], "val")
+            input_tokens, target_tokens = data.get_batch(config["batch_size"], config["context_len"], "val")
 
             # Wrap the tokens into named arrays
             input_tokens = wrap(input_tokens).tag("batch", "seq")
@@ -87,6 +87,6 @@ for iter in pbar:
 n_tokens = 2000
 prompt_tokens = np.array([[0]], dtype=int)
 prompt_tokens = wrap(prompt_tokens).tag("batch", "seq")
-generated_tokens = generate_from_transformer(key, params, prompt_tokens, config["block_size"], n_tokens)
+generated_tokens = generate_from_transformer(key, params, prompt_tokens, config["context_len"], n_tokens)
 completion = data.decode(generated_tokens[{"batch" : 0}].untag("seq").unwrap().tolist())
 print(f"Sample:\n{completion}")

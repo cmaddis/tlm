@@ -4,13 +4,15 @@ import jax
 import jax.numpy as jnp
 
 def cross_entropy_along(targets, logits, axis):
-    """Cross entropy of the logits along axis."""
-    assert axis_names_contain(logits, {axis})
+  """Cross entropy of the predictions"""
+  assert axis_names_are(logits, set(targets.named_shape.keys()).union({"alphabet"}))
 
-    # take along the vocab axis
-    log_losses = nmap(jnp.take)(logits.untag(axis), targets)
-    loss = -jnp.mean(log_losses.unwrap(*log_losses.named_shape.keys()))
-    return loss
+  # Take the log_predictions along the alphabet axis for each target_token index
+  log_losses = logits[{axis : targets}]
+
+  # Unwrap named axis functionality and reduce down a single number
+  loss = -jnp.mean(log_losses.unwrap(*log_losses.named_shape.keys()))
+  return loss
 
 def sample_along(key, logits, axis):
     """Sample from a categorical distribution along axis."""

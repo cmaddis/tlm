@@ -30,9 +30,9 @@ def generate_from_transformer(key, params, inp, context_size, max_new_tokens):
         # Take the last time step prediction
         log_pred = log_preds[{"seq" : pz.slice[-1:]}]
 
-        # Sample categoricals along the vocab dimension
+        # Sample categoricals along the alphabet dimension
         key, subkey = jax.random.split(key)
-        next_tokens = jax.jit(sample_along, static_argnums=2)(subkey, log_pred, "vocab")
+        next_tokens = jax.jit(sample_along, static_argnums=2)(subkey, log_pred, "alphabet")
 
         # concatenate along the seq dimension to the running sequence
         generated = pz.nx.concatenate((generated, next_tokens), "seq")
@@ -40,13 +40,13 @@ def generate_from_transformer(key, params, inp, context_size, max_new_tokens):
 
 @jax.jit
 def get_log_predictions(params, inp):
-    """Computes log-probabilities over the vocabulary for each position in the input sequence using the full Transformer model."""
+    """Computes log-probabilities over the alphabetulary for each position in the input sequence using the full Transformer model."""
     assert axis_names_are(inp, {"batch", "seq"})
 
     seq_len = inp.named_shape["seq"]
 
     # Token and position embeddings
-    tok_emb = params['token_embedding'][{"vocab" : inp}] # embed tokens
+    tok_emb = params['token_embedding'][{"alphabet" : inp}] # embed tokens
     assert axis_names_are(tok_emb, {"batch", "seq", "embed"})
     pos_emb = params['position_embedding'][{"seq" : pz.nx.arange("seq", seq_len)}]
     assert axis_names_are(pos_emb, {"seq", "embed"})
@@ -60,47 +60,47 @@ def get_log_predictions(params, inp):
     # Final layer norm
     emb = renorm_along(params['ln_f'], emb, "embed")
 
-    # Project into vocab
+    # Project into alphabet
     logits = affine_along(params["lm_head"], emb, "embed")
 
-    # log softmax over vocab
-    log_preds = nmap(jax.nn.log_softmax)(logits.untag("vocab"))
-    log_preds = log_preds.tag("vocab")
+    # log softmax over "embed", which is length "alphabet"
+    log_preds = nmap(jax.nn.log_softmax)(logits.untag("embed"))
+    log_preds = log_preds.tag("alphabet")
     return log_preds
 
-def transformer_block(params, x):
+def transformer_block(params, emb):
     """Processes input through a complete Transformer block: layer norm → self-attention → residual → layer norm → feed-forward → residual."""
-    assert axis_names_are(x, {"batch", "seq", "embed"})
+    assert axis_names_are(emb, {"batch", "seq", "embed"})
 
     # LAYER NORM
     # Renormalizing along the "embed" dimension is layer norm
-    ln1_out = renorm_along(params['ln1'], x, "embed")
+    ln1_out = renorm_along(params['ln1'], emb, "embed")
 
     # MULTIHEADED CAUSAL SELF ATTENTION
     attn_out = multihead_selfattention(params['attn'], ln1_out, causal=True)
 
     # RESIDUAL CONNECTION
-    x = x + attn_out
+    emb = emb + attn_out
 
     # LAYER NORM
     # Renormalizing along the embed dimension is layer norm
-    ln2_out = renorm_along(params['ln2'], x, "embed")
+    ln2_out = renorm_along(params['ln2'], emb, "embed")
 
     # FEED FORWARD MLP along the embed dimension
     ff_out = mlp_along(params['ffwd'], ln2_out, "embed")
-    x = x + ff_out
+    emb = emb + ff_out
 
-    return x
+    return emb
 
-def multihead_selfattention(params, x, causal=True):
+def multihead_selfattention(params, emb, causal=True):
     """Applies multi-head self-attention where each head processes a different projection of the input, allowing the model to attend to different aspects of the sequence."""
-    assert axis_names_are(x, {"batch", "seq", "embed"})
+    assert axis_names_are(emb, {"batch", "seq", "embed"})
 
     # We produce keys, queries, and values by embedding each token with
     # a different linear transformation
-    q = nmap(jnp.dot)(params["wq"].untag("embed"), x.untag("embed"))
-    k = nmap(jnp.dot)(params["wk"].untag("embed"), x.untag("embed"))
-    v = nmap(jnp.dot)(params["wv"].untag("embed"), x.untag("embed"))
+    q = nmap(jnp.dot)(params["wq"].untag("embed"), emb.untag("embed"))
+    k = nmap(jnp.dot)(params["wk"].untag("embed"), emb.untag("embed"))
+    v = nmap(jnp.dot)(params["wv"].untag("embed"), emb.untag("embed"))
 
     assert axis_names_are(q, {"batch", "seq", "head", "embed/head"})
     assert axis_names_are(k, {"batch", "seq", "head", "embed/head"})
@@ -117,22 +117,22 @@ def multihead_selfattention(params, x, causal=True):
     # Now we're ready to attend! We will have the queries along axis "qseq" attend
     # to the keys along "kseq", using "embed/head" as the feature_axis.
     # This will keep the heads independent.
-    out = attention(q, k, v,
-                    query_axis="qseq",
-                    key_axis="kseq",
-                    feature_axis="embed/head",
-                    causal=causal)
+    attn_out = attention(q, k, v,
+                        query_axis="qseq",
+                        key_axis="kseq",
+                        feature_axis="embed/head",
+                        causal=causal)
 
     # We're going to rearrange the dimensions now to bring us back to convention.
     # First, we rename "qseq", which was a holdover from our attention convention
-    out = out.untag("qseq").tag("seq")
+    attn_out = attn_out.untag("qseq").tag("seq")
     # Now, we concat "head" and "embed/head" dimensions
-    out = out.untag("head", "embed/head").flatten().tag("embed")
-    assert axis_names_are(out, {"batch", "seq", "embed"})
+    emb = attn_out.untag("head", "embed/head").flatten().tag("embed")
+    assert axis_names_are(emb, {"batch", "seq", "embed"})
 
     # Final affine layer
-    out = affine_along(params["aff"], out, "embed")
-    return out
+    emb = affine_along(params["aff"], emb, "embed")
+    return emb
 
 def attention(q, k, v, query_axis, key_axis, feature_axis, causal=True):
     """Computes scaled dot-product attention between queries and keys, with optional causal masking to prevent attending 
@@ -142,11 +142,11 @@ def attention(q, k, v, query_axis, key_axis, feature_axis, causal=True):
     assert axis_names_contain(v, {key_axis})
 
     # Every key interacts with every query via the dot product of their feature vectors
-    attn_logits = nmap(jnp.dot)(q.untag(feature_axis), k.untag(feature_axis))
+    scores = nmap(jnp.dot)(q.untag(feature_axis), k.untag(feature_axis))
 
     # Scale the attention logits to avoid saturating the softmax
     feature_dim = q.named_shape[feature_axis]
-    attn_logits = attn_logits / np.sqrt(feature_dim)
+    scores = scores / np.sqrt(feature_dim)
 
     if causal:
         # Get the sequence indices for the queries and keys to enable causal masking
@@ -157,14 +157,14 @@ def attention(q, k, v, query_axis, key_axis, feature_axis, causal=True):
         # For causal attention, we want to mask out (set to -inf) any (key, query) pair
         # such that key's index is greater than query's index, i.e., key is in the future.
         # This ensures the softmax will give zero probability to attending to the future.
-        attn_logits = nmap(jnp.where)(
+        scores = nmap(jnp.where)(
             q_idxs < k_idxs,  # Broadcasts across other dimensions
             float('-inf'),
-            attn_logits,
+            scores,
         )
 
     # Compute a probability distribution over keys for each query
-    attn_dist = nmap(jax.nn.softmax)(attn_logits.untag(key_axis))
+    attn_dist = nmap(jax.nn.softmax)(scores.untag(key_axis))
     attn_dist = attn_dist.tag(key_axis)
 
     # The output for each query is the weighted average of values,
@@ -206,14 +206,26 @@ def mlp_along(params, x, feature_axis):
 def affine_along(params, x, feature_axis):
     """Applies an affine transformation (Wx + b) along the specified feature axis."""
     assert axis_names_contain(x, {feature_axis})
+    # Unpack the parameters
+    W = params["W"]
+    b = params["b"]
 
-    # Get matrix axis names for input and output dimensions
-    in_axis_name, out_axis_name = get_innout_axes(params["W"])
+    # We use the convention that linear layers applied
+    # to feature_axis have named axes 
+    # {feature_axis+ "_in", feature_axis+ "_out"} and
+    assert axis_names_are(W, {feature_axis+"_in", feature_axis+"_out"})
+    assert axis_names_are(b, {feature_axis+"_out"})
 
-    # Apply affine transformation and restore axis naming
-    out = nmap(jnp.dot)(x.untag(feature_axis), params["W"].untag(in_axis_name))
-    out = out + params["b"]
-    out = out.untag(out_axis_name).tag(out_axis_name[:-4])
+    # Apply affine transformation
+    out = nmap(jnp.dot)(
+        W.untag(feature_axis+ "_in"),
+        x.untag(feature_axis),
+    )
+    out = out + b
+
+    # Use the convention that we do not rename the feature_axis
+    # of the embeddings, so we have to rename the axis
+    out = out.untag(feature_axis+"_out").tag(feature_axis)
     return out
 
 def param_init(key, config):
@@ -221,8 +233,8 @@ def param_init(key, config):
     n_layers = config["n_layers"]
     n_heads = config["n_heads"]
     embed_dim = config["embed_dim"]
-    block_size = config["block_size"]
-    vocab_size = config["vocab_size"]
+    context_len = config["context_len"]
+    alphabet_size = config["alphabet_size"]
     head_size = embed_dim // n_heads
     hidden_dim = 4 * embed_dim
 
@@ -230,8 +242,8 @@ def param_init(key, config):
     keys = jax.random.split(key, n_layers+4)
 
     # PyTorch default initialization for embeddings is N(0, 1)
-    token_embedding = wrap(jax.random.normal(keys[0], (vocab_size, embed_dim))).tag("vocab", "embed")
-    position_embedding = wrap(jax.random.normal(keys[1], (block_size, embed_dim))).tag("seq", "embed")
+    token_embedding = wrap(jax.random.normal(keys[0], (alphabet_size, embed_dim))).tag("alphabet", "embed")
+    position_embedding = wrap(jax.random.normal(keys[1], (context_len, embed_dim))).tag("seq", "embed")
 
     # PyTorch default initialization for linear layers is U(-sqrt(k), sqrt(k))
     # where k = 1/in_features
@@ -250,10 +262,10 @@ def param_init(key, config):
             'bias': wrap(jnp.zeros(embed_dim)).tag("embed")
     }
 
-    shape = (embed_dim, vocab_size)
+    shape = (embed_dim, alphabet_size)
     params['lm_head'] = {
-        'W': wrap(sample_uniform(keys[2], shape[0], shape)).tag("embed_in", "vocab_out"),
-        'b': wrap(sample_uniform(keys[3], shape[0], shape[1])).tag("vocab_out")
+        'W': wrap(sample_uniform(keys[2], shape[0], shape)).tag("embed_in", "embed_out"),
+        'b': wrap(sample_uniform(keys[3], shape[0], shape[1])).tag("embed_out")
     }
     params['blocks'] = []
 

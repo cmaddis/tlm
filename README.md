@@ -39,7 +39,3 @@ The model will train on a subset of TinyStories and generate sample text.
 ## License
 
 This project is licensed under the GNU General Public License v3.0 - see the LICENSE file for details.
-
-## Mistakes
-
-Please let us know if you find any mistakes! There probably are some.
