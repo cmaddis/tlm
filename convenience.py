@@ -24,9 +24,6 @@ def sample_along(key, logits, axis):
     )
     return nmap(jax.random.categorical)(subkeys, logits.untag(axis))
 
-def is_fully_named(x):
-    return x.positional_shape == ()
-
 def axis_names_are(x, names):
     return names == set(x.named_shape.keys())
 

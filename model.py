@@ -8,9 +8,7 @@ import jax
 import jax.numpy as jnp
 from penzai import pz
 from penzai.core.named_axes import wrap, nmap
-from convenience import (sample_along, is_fully_named, 
-                         axis_names_are, axis_names_contain,
-                         get_innout_axes)
+from convenience import (sample_along, axis_names_are, axis_names_contain)
 
 def generate_from_transformer(key, params, inp, context_size, max_new_tokens):
     """Autoregressively generates new tokens by sampling from the model's predictions, using a sliding context window if needed.
