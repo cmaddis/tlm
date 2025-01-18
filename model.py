@@ -10,6 +10,11 @@ from penzai import pz
 from penzai.core.named_axes import wrap, nmap
 from convenience import (sample_along, axis_names_are, axis_names_contain)
 
+nmap_dot = nmap(jnp.dot)
+nmap_where = nmap(jnp.where)
+nmap_softmax = nmap(jax.nn.softmax)
+nmap_log_softmax = nmap(jax.nn.log_softmax)
+
 def generate_from_transformer(key, params, inp, context_size, max_new_tokens):
     """Autoregressively generates new tokens by sampling from the model's predictions, using a sliding context window if needed.
     
@@ -62,7 +67,7 @@ def get_log_predictions(params, inp):
     logits = affine_along(params["lm_head"], emb, "embed")
 
     # log softmax over "embed", which is length "alphabet"
-    log_preds = nmap(jax.nn.log_softmax)(logits.untag("embed"))
+    log_preds = nmap_log_softmax(logits.untag("embed"))
     log_preds = log_preds.tag("alphabet")
     return log_preds
 
@@ -95,9 +100,9 @@ def multiheaded_selfattention(params, emb, causal=True):
 
     # Apply three linear maps to the embeddings independently across "seq"
     # These are now our keys and queries and values for self-attention!
-    queries = nmap(jnp.dot)(params["Wq"].untag("embed"), emb.untag("embed"))
-    keys = nmap(jnp.dot)(params["Wk"].untag("embed"), emb.untag("embed"))
-    values = nmap(jnp.dot)(params["Wv"].untag("embed"), emb.untag("embed"))
+    queries = nmap_dot(params["Wq"].untag("embed"), emb.untag("embed"))
+    keys = nmap_dot(params["Wk"].untag("embed"), emb.untag("embed"))
+    values = nmap_dot(params["Wv"].untag("embed"), emb.untag("embed"))
 
     # As this is SELF-attention, the queries and keys both have the same dimension "seq". 
     # But, we want (key, query) pairs to interact, even if the key and query index
@@ -113,7 +118,7 @@ def multiheaded_selfattention(params, emb, causal=True):
 
     # Compute scores by taking the inner product of every key with every query
     # This checks "alignment".
-    scores = nmap(jnp.dot)(queries.untag("embed/head"), keys.untag("embed/head"))
+    scores = nmap_dot(queries.untag("embed/head"), keys.untag("embed/head"))
 
     # Scale the attention logits to avoid saturating the softmax
     feature_dim = queries.named_shape["embed/head"]
@@ -131,7 +136,7 @@ def multiheaded_selfattention(params, emb, causal=True):
         q_idxs = pz.nx.arange("query", query_dim)
 
         # Set the scores to -inf where q < k
-        scores = nmap(jnp.where)(
+        scores = nmap_where(
         q_idxs < k_idxs,  # Broadcasts across other dimensions
         float('-inf'),
         scores,
@@ -139,14 +144,14 @@ def multiheaded_selfattention(params, emb, causal=True):
 
     # Compute a probability distribution over keys for each query
     # This is the "soft" index, aka attention!
-    attn_dist = nmap(jax.nn.softmax)(scores.untag("key"))
+    attn_dist = nmap_softmax(scores.untag("key"))
     attn_dist = attn_dist.tag("key")
 
     # Taking the inner product along the key axis with the attention distribution
     # returns the average value, with each key contributing in proportion to 
     # its attention weight
     # the output will have named axes {"query", "embed"} and is a floating-point array
-    emb = nmap(jnp.dot)(attn_dist.untag("key"), values.untag("key"))
+    emb = nmap_dot(attn_dist.untag("key"), values.untag("key"))
 
     # We're going to rearrange the dimensions now to bring us back to convention.
     # First, we rename "query", which was a holdover from our attention convention
@@ -204,7 +209,7 @@ def affine_along(params, x, feature_axis):
     assert axis_names_are(b, {feature_axis+"_out"})
 
     # Apply affine transformation
-    out = nmap(jnp.dot)(
+    out = nmap_dot(
         W.untag(feature_axis+ "_in"),
         x.untag(feature_axis),
     )
