@@ -19,12 +19,12 @@ For example, in this pseudo-code for a (simplified) attention mechanism, instead
     attn_logits = nmap(jnp.dot)(q.untag("embed"), k.untag("embed"))
 
     # Compute a distribution over keys for each query
-    attn_dist = nmap(jax.nn.softmax)(attn_logits.untag("kseq))
-    attn_dist = attn_dist.tag("kseq")
+    attn_dist = nmap(jax.nn.softmax)(attn_logits.untag("key))
+    attn_dist = attn_dist.tag("key")
 
     # The value returned for each query is the average value
     # indexed by the keys, under the attention distribution
-    out = nmap(jnp.dot)(attn_dist.untag("kseq"), v.untag("kseq"))
+    out = nmap(jnp.dot)(attn_dist.untag("key"), v.untag("key"))
 
 
 This makes it a bit more clear which axes are participating in which computation.
